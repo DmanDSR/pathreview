@@ -94,3 +94,17 @@ This issue it adding detection logic to the project. This means adding logic to 
 **Setup confirmation:** [*] App runs locally at localhost:5173
 
 **Cohort ledger:** [*] Issue added to cohort ledger
+
+## Week 8 — Reproduction & solution planning
+
+**Reproduction commit link:** https://github.com/DmanDSR/pathreview/commit/ec77790306b1ba4ce36c124700b74a72c13e4b07
+
+**Reproduction summary:**
+Added a failing unit test (`tests/unit/test_github_tool.py`) that mocks the GitHub API and drives `GitHubTool._fetch_repo_metadata()` — the agent-side repo analysis tool named in issue #50. The test asserts the analysis output contains a `has_tests` boolean; it fails today because the output dict (github_tool.py:86-97) reports `has_readme` but has no `has_tests` key, confirming the gap and pinning it to that exact dict. (A separate path, `ingestion/parsers/repo_analyzer.py`, already has `has_tests` — that is out of scope; the issue targets the agent tool.)
+
+**PLAN.md link:** https://github.com/DmanDSR/pathreview/blob/chore/50-dev-environment-setup/PLAN.md
+
+**Walkthrough video (recommended):** [link to your Loom video, ≤2 min — recommended, not graded]
+
+**Blockers or open questions:**
+The manifest lists `agent/tools/repo_analyzer.py` as a target file, but it does not exist in the current tree — the agent's repo analysis lives entirely in `github_tool.py`, so that is where the fix will go. Open question for Week 9: detecting tests needs the repo file tree (an extra GitHub API call, like `_has_readme`); confirm the Git Trees API is the right approach and how to handle truncated trees on large repos.
