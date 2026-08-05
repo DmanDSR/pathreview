@@ -158,7 +158,7 @@ additive and the issue only asks to surface the field.
 
 ### Check-in 2 (end of week)
 
-**PR link:** [link to your submitted pull request]
+**PR link:** (https://github.com/ascherj/pathreview/pull/299)
 
 **Branch:** `chore/50-dev-environment-setup`
 
