@@ -98,6 +98,8 @@ class GitHubTool(BaseTool):
             "open_issues_count": repo_json.get("open_issues_count", 0),
             "last_commit_date": repo_json.get("pushed_at", ""),
             "has_readme": self._has_readme(username, repo_name),
+            # Pass the default branch we already have from repo_json so the tree
+            # lookup does not have to re-fetch it; fall back to "main" if absent.
             "has_tests": self._has_tests(
                 username, repo_name, repo_json.get("default_branch") or "main"
             ),
@@ -197,10 +199,13 @@ class GitHubTool(BaseTool):
             logger.debug("github_tree_fetch_failed", username=username, repo=repo_name)
             return False
 
+        # Guard the shape before iterating: an unexpected payload should report
+        # "no tests found" rather than raise from inside the loop below.
         tree = tree_json.get("tree", [])
         if not isinstance(tree, list):
             return False
 
+        # One marker anywhere in the tree is enough, so stop at the first hit.
         for entry in tree:
             if self._path_indicates_tests(entry.get("path", "")):
                 return True

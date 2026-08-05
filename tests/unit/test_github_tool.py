@@ -64,9 +64,17 @@ class TestGitHubToolHasTests:
         return GitHubTool()
 
     def _execute(self, mock_httpx: MagicMock, tool: GitHubTool, tree: MagicMock) -> ToolResult:
-        """Drive ``execute()`` with a mocked repo call followed by a tree call."""
+        """Drive ``execute()`` with a mocked repo call followed by a tree call.
+
+        ``_fetch_repo_metadata`` makes exactly two GET calls in a fixed order —
+        the repo metadata first, then the file tree — because the keys of a dict
+        literal are evaluated top to bottom. That is what lets side_effect hand
+        back the two responses positionally.
+        """
         mock_httpx.get.side_effect = [_mock_response(REPO_JSON), tree]
 
+        # _has_readme probes with HEAD, not GET, so it is mocked separately and
+        # does not consume one of the two GET responses above.
         head_response = MagicMock()
         head_response.status_code = 200
         mock_httpx.head.return_value = head_response
