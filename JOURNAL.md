@@ -214,4 +214,182 @@ before starting:
 ruff errors, the 5 mypy errors, and 53 failing unit tests listed above all predate
 this branch and are unrelated to issue #50. My changes do not affect them.
 
-**Draft PR feedback received from:** [name or Slack handle, or "none"]
+**Draft PR feedback received from:** none
+
+## Week 10 — Iteration & reflection
+
+### Reviewer feedback
+
+**Feedback received:** [ ] Yes  [*] No — still awaiting review
+
+**Summary of feedback:**
+None received. PR #299 (https://github.com/ascherj/pathreview/pull/299) was
+opened at the end of Week 9 against `ascherj/pathreview` and is still **open**
+with zero reviews, zero review comments, and no reviewers assigned as of Week 10.
+I also did not get peer feedback on the draft in Week 9, so there is no external
+input to iterate on for this entry.
+
+**How you responded:**
+With no reviewer to respond to, I spent the week reviewing my own PR as if I were
+the maintainer, and made the one change that review pass justified:
+
+- **Explanatory comments where the code is non-obvious** (commit `9c0810b`,
+  `docs(agent): explain the non-obvious parts of has_tests detection`). Reading
+  my own diff cold, three things weren't self-evident to a reviewer: *why*
+  matching happens on split path segments instead of a substring check, *why* a
+  truncated tree returns `False` instead of paginating, and *why* the tree fetch
+  swallows every exception. Those are the questions a maintainer would ask in
+  review, so I answered them in the code rather than waiting to answer them in a
+  comment thread.
+- **Re-verified the numbers still hold** after that commit, so the claims in my
+  PR description (181 ruff errors before and after, 54 → 53 failing unit tests,
+  no new failures) are still true of the branch head and not just of `616b1df`.
+- **Left the open questions in the PR description rather than resolving them
+  unilaterally**: whether truncated trees should paginate, whether the marker
+  list should grow to cover JS (`__tests__/`, `spec/`), and whether the second
+  analyzer (`ingestion/parsers/repo_analyzer.py`, which already has its own
+  `has_tests`) should eventually be consolidated with this one. Each is a scope
+  decision that belongs to a maintainer, not to a Tier 1 contributor, so I
+  flagged them and stopped.
+
+If feedback arrives after the deadline I'll address it on the same branch; the
+most likely asks are the extra GitHub API call per repo and extending the marker
+list beyond Python.
+
+---
+
+### Reflection
+
+**What was harder than you expected?**
+
+The verification, not the code. The fix is about 80 lines and one dict key. What
+I did not anticipate is that on a clean checkout of this repo, **both** commands
+the self-review checkbox asks about already fail: `make check` dies at its first
+step on 181 ruff errors, and `make test-unit` reports 54 failures — all in files
+I never opened. For a while I genuinely could not honestly tick "make check
+passes," and I didn't know whether I was looking at my own damage or the repo's.
+
+What rescued it was something I did almost on instinct at the start of Week 9:
+before writing a single line, I ran both commands and saved the output. That
+baseline converted an unanswerable question ("does it pass?") into a mechanical
+one ("did my diff change the failure list?"). I could then make a claim a
+reviewer can check — 54 failed → 53 failed with **new failures: none**, and
+exactly 181 ruff errors before and after — instead of a claim they'd have to
+take on faith.
+
+The other surprise was that **reading the issue was harder than fixing it**. The
+issue and the issue manifest both named `agent/tools/repo_analyzer.py` as a
+target file. That file does not exist in the tree. Meanwhile
+`ingestion/parsers/repo_analyzer.py` *does* exist and *already* implements
+`has_tests`. So a literal reading of the issue points either at a file you can't
+edit or at a feature that's already built. Working out that the real, addressable
+gap was `GitHubTool._fetch_repo_metadata()` — and being able to defend that
+scoping in PLAN.md — took longer than implementing `_has_tests()`.
+
+**What did you learn about working in a large codebase?**
+
+On my own projects the code *is* the spec. Here the spec is scattered across the
+issue, a manifest, the existing conventions, and code that partly contradicts all
+three — and the code is the only source that can't be out of date.
+
+Concretely, four things were different:
+
+- **Existing code was a better spec than the issue.** `_has_readme()` taught me
+  more than the issue body did: it showed me the shape a helper like this is
+  supposed to have *in this repo* — the auth-header pattern, `httpx` with an
+  explicit timeout, try/except degrading to `False`, one extra call. Matching the
+  neighboring pattern is itself a form of correctness. A "better" helper that
+  didn't look like its neighbor would have been a worse contribution, because
+  the next person to read the file would have to learn two idioms instead of one.
+- **You have to check the blast radius before you think you're safe.** Adding a
+  dict key felt free, but I traced the consumer first: `agent/orchestrator.py`
+  caches `ToolResult.data` as an untyped dict with no schema, so the addition is
+  purely additive with no migration. On my own project I'd have added the key and
+  found out later.
+- **Seeing a real problem and *not* fixing it is a skill.** Two repo analyzers
+  with overlapping responsibilities is a genuine design smell, and I wanted to
+  unify them. That would have turned a reviewable Tier 1 diff into an unreviewable
+  refactor of code I don't understand the history of. Documenting it in PLAN.md
+  and leaving it was the right call.
+- **Failure modes matter more in someone else's pipeline.** The one behavior I
+  would never have written for a personal project is returning `False` on *any*
+  tree-read failure. In a portfolio-review pipeline, a GitHub rate limit must
+  degrade one boolean, not crash a user's repo analysis.
+
+**How did AI tools help — and where did they fall short?**
+
+*Where it helped.* Orientation and mechanical breadth. Locating both repo
+analyzers, finding `_has_readme` as the template, and confirming that
+`agent/tools/repo_analyzer.py` was absent took minutes instead of an afternoon of
+grepping an unfamiliar tree. It was also strong at scaling the tests once the
+pattern existed: going from my 1 reproduction test to 26 in the fixture and
+mocking style already used in `tests/unit/` was fast because the convention was
+already in the repo and could be matched. Same for drafting the verification
+write-up in Week 9 — once *I* had the numbers, turning them into precise prose
+was quick.
+
+*Where it fell short.*
+
+1. **It trusts the written record.** The manifest said
+   `agent/tools/repo_analyzer.py`, so the first plan was happily built around a
+   file that doesn't exist. AI will plan against a phantom file without blinking.
+   Checking the map against the actual tree was on me, and it was the single most
+   valuable thing I did in Week 8.
+2. **Judgment calls with no local evidence.** Whether to paginate truncated
+   trees, whether one extra API call per repo is an acceptable cost, whether to
+   touch the second analyzer — none of those are answerable from the code. They
+   depend on what a Tier 1 PR *should* be, and that's a call I had to make and
+   justify.
+3. **The design change I'm happiest with came from my own edge-case list.**
+   PLAN.md step 1 had detection and path matching in one method. Only after I
+   wrote down that `contest/` and `latest/` must not match did I see that
+   matching should be a separate pure `_path_indicates_tests()` classmethod — so
+   the false-positive traps are testable with zero HTTP mocking. That's a
+   testability instinct applied to a concrete risk, and it's the kind of thing you
+   get by writing your own edge cases before you write code.
+4. **It can't tell me whether maintainers will accept the PR.** No amount of
+   local green makes a contribution welcome. That's why I documented the
+   pre-existing failures and my scoping rationale — the parts a human reviewer
+   needs in order to trust the diff.
+
+**What would you do differently if you started over?**
+
+- **Take the baseline in Week 8, not Week 9.** It belongs next to the reproduction
+  test, because everything I can honestly claim about my changes is measured
+  against it. I got lucky that I took it before touching code; it should have been
+  a deliberate Week 8 deliverable.
+- **Read the target *function* in Week 7, not just the target file.** I confirmed
+  a file existed before claiming issue #50; I didn't confirm the function the
+  issue described existed. One read of `_fetch_repo_metadata()` in Week 7 would
+  have surfaced the whole "the named file doesn't exist and the other analyzer
+  already does this" discovery a full week earlier, which would have bought me a
+  week of review time.
+- **Open the PR as a draft mid-Week-9 and actively ask for review.** I opened it
+  at the end of Week 9 and it's still unreviewed, which is why my Week 10
+  iteration section has no external feedback in it. Review latency isn't under my
+  control, so the correct response is to expose the work as early as it's coherent
+  and ask a specific question rather than waiting until it's finished and perfect.
+- **Write the "why" comments as I go.** I added them in Week 10 (`9c0810b`) after
+  re-reading my diff as a stranger. Every one of them answers a question I had
+  already answered for myself in Week 9 — I just hadn't written it down where a
+  reviewer would see it.
+
+What I would *not* change: the reproduction-test-first order, and staying inside
+Tier 1 scope. Both made every later step easier to defend.
+
+**What are you most proud of from this module?**
+
+Not the feature — the verification paragraph in Week 9, Check-in 2. Turning "the
+checks fail and I don't know whose fault it is" into a set of specific, checkable
+claims (181 ruff errors before and exactly 181 after; 54 failing unit tests → 53;
+new failures: none; mypy and black clean on my two changed files) is the part I'd
+most want a maintainer to trust, because it's the part that lets them review my
+diff instead of the repo's pre-existing state.
+
+Runner-up: `_path_indicates_tests()` and its five false-positive traps —
+`contest/entry.py`, `latest/build.py`, `src/protest.py`, `docs/testing.md`,
+`attestation.py`. A naive `"test" in path` check flags every one of them, the
+issue's acceptance criteria didn't ask for any of them, and nobody would have
+noticed if I'd shipped without them. I found them by writing down edge cases
+before writing code, and that habit is the thing I'm actually taking out of this
+module.
