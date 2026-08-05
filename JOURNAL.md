@@ -108,3 +108,110 @@ Added a failing unit test (`tests/unit/test_github_tool.py`) that mocks the GitH
 
 **Blockers or open questions:**
 The manifest lists `agent/tools/repo_analyzer.py` as a target file, but it does not exist in the current tree — the agent's repo analysis lives entirely in `github_tool.py`, so that is where the fix will go. Open question for Week 9: detecting tests needs the repo file tree (an extra GitHub API call, like `_has_readme`); confirm the Git Trees API is the right approach and how to handle truncated trees on large repos.
+
+## Week 9 — Solution building & PR submission
+
+### Check-in 1 (mid-week)
+
+**Current progress:**
+Before writing any code I recorded a baseline of the existing failures (see the
+pre-existing failures note below), so I could prove later that my changes added
+none. PLAN.md steps 1–3 are done, in commit `616b1df`
+(`feat(agent): add has_tests detection to repo analysis output`):
+
+- **Step 1 — detection helper.** Added `GitHubTool._has_tests()`, which reads the
+  repo file tree from the GitHub Git Trees API
+  (`GET /repos/{owner}/{repo}/git/trees/{branch}?recursive=1`) and reports whether
+  any path is a test marker. It reuses the auth-header pattern from `_has_readme`.
+- **Step 2 — wired into the output.** `_fetch_repo_metadata()` now includes
+  `"has_tests"`. I pass the `default_branch` already present in the repo JSON
+  instead of re-fetching it, so the feature costs exactly one extra API call.
+- **Step 3 — graceful failure.** The tree request is wrapped in try/except and
+  defaults to `False`, the same defensive shape as `_has_readme`, so a missing
+  branch, a rate limit, or a network error can never break repo analysis.
+
+One design change from PLAN.md: I split the path matching into a separate pure
+`_path_indicates_tests(path)` classmethod. The plan's edge cases called out that
+`contest/` and `latest/` must not match, so the matcher splits a path on `/` and
+compares whole segments rather than doing a substring test. Pulling it out of the
+network code means those false-positive traps can be tested directly with no HTTP
+mocking at all.
+
+The Week 8 reproduction test now passes.
+
+**Next steps:**
+PLAN.md steps 4–5: widen `tests/unit/test_github_tool.py` past the single
+reproduction case to cover each detection marker, the false-positive traps, and
+the API-failure paths; then re-run the full checks and diff them against my
+baseline to confirm no new failures.
+
+**Blockers:**
+None. Both Week 8 open questions are resolved: the Git Trees API with
+`recursive=1` is the right call, and for truncated trees I return `False` rather
+than paginating — under-reporting is acceptable for Tier 1 and is commented in
+the code. I also confirmed the third open question from PLAN.md ("should a
+downstream consumer use `has_tests`?") is a no: `agent/orchestrator.py` caches
+`ToolResult.data` as an untyped dict with no schema, so adding a key is purely
+additive and the issue only asks to surface the field.
+
+---
+
+### Check-in 2 (end of week)
+
+**PR link:** [link to your submitted pull request]
+
+**Branch:** `chore/50-dev-environment-setup`
+
+**What you built:**
+The agent-side repo analysis in `agent/tools/github_tool.py` reported
+`has_readme` but had no test signal. It now also reports `has_tests`: a new
+`_has_tests()` helper reads the repository file tree via the GitHub Git Trees API
+and returns `True` when any path is a test marker — a `tests/` or `test/`
+directory, a `pytest.ini`, or a `test_*.py` file. Matching happens on whole path
+segments via `_path_indicates_tests()`, so `contest/` and `latest/` are not false
+positives, and any failure reading the tree degrades to `False` so analysis never
+crashes.
+
+**Tests added or updated:**
+`tests/unit/test_github_tool.py` — grew from the 1 Week 8 reproduction test to 26
+passing tests. Through `execute()`: each marker type detected (`tests/` dir,
+scattered `test_*.py`, `pytest.ini`), a repo with no markers reporting `False`, a
+tree request error and a non-200 tree response both degrading to `False`, a
+truncated tree still reporting markers it did see, the tree being requested
+recursively from the repo's default branch, and a regression check that all ten
+pre-existing metadata fields are untouched. Directly against
+`_path_indicates_tests`: parametrized marker paths plus the false-positive traps
+(`contest/entry.py`, `latest/build.py`, `src/protest.py`, `docs/testing.md`,
+`attestation.py`) that a naive substring match would wrongly flag. The original
+reproduction test is kept as the regression guard that the field exists and is a
+bool.
+
+**Self-review confirmation:** [*] make check passes  [*] make test-unit passes
+
+Checked per the pre-existing-failures rule below — this codebase has documented
+pre-existing failures in both commands, so "passes" here means **my changes
+introduce no new failures**, verified by diffing against the baseline I took
+before starting:
+
+- `make test-unit`: **54 failed / 375 passed** before → **53 failed / 401 passed**
+  after. Diffing the two failure lists, new failures: **none**. The one that
+  flipped to passing is my own Week 8 reproduction test; the other 25 tests I
+  added all pass.
+- `make check`: fails at its first step (`lint`) both before and after, on **181
+  pre-existing ruff errors** across files I never touched — so it never reaches
+  `format` or `typecheck`. The repo-wide count is **exactly 181 before and after**,
+  so I added none. Scoped to my two changed files, `ruff`, `black --check`, and
+  `mypy` are all clean, and the repo's own pre-commit hooks (ruff, black, mypy)
+  passed on both commits.
+- `make typecheck` independently: **5 pre-existing errors** before and after —
+  missing library stubs (`PyPDF2`, `jose`, `passlib`, `rank_bm25`) plus a numpy
+  stub that needs Python 3.12+ syntax. All are in files I did not touch, and mypy
+  reports "errors prevented further checking", so it bails before reaching
+  `agent/`. That is why I ran mypy directly on `agent/tools/github_tool.py`
+  (clean) rather than relying on `make typecheck`.
+
+**Pre-existing failures observed (documented for the PR description):** the 181
+ruff errors, the 5 mypy errors, and 53 failing unit tests listed above all predate
+this branch and are unrelated to issue #50. My changes do not affect them.
+
+**Draft PR feedback received from:** [name or Slack handle, or "none"]
